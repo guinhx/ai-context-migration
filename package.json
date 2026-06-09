@@ -1,0 +1,18 @@
+{
+  "name": "ai-context-migration",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "ctx": "bun run packages/cli/src/index.ts",
+    "build": "bun build ./packages/cli/src/index.ts --compile --outfile=./dist/ctx",
+    "link": "bun link --cwd packages/cli",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.14",
+    "typescript": "^5.8.3"
+  }
+}
