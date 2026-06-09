@@ -1,0 +1,73 @@
+name: Feature request
+description: Suggest a new feature or provider
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributions: []
+    value: |
+      Have an idea? We'd love to hear it — especially new AI providers to support.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to accomplish?
+      placeholder: I want to migrate Claude Code conversations to Cursor...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work?
+      placeholder: Add a provider-claude package that reads .claude/ conversation logs...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider-type
+    attributes:
+      label: Provider type (if applicable)
+      options:
+        - Input provider (read from an AI)
+        - Output provider (write to an AI)
+        - Both
+        - Not provider-related
+    validations:
+      required: false
+
+  - type: input
+    id: source-ai
+    attributes:
+      label: Source AI tool (if applicable)
+      placeholder: Claude Code, ChatGPT, Windsurf, etc.
+    validations:
+      required: false
+
+  - type: input
+    id: target-ai
+    attributes:
+      label: Target AI tool (if applicable)
+      placeholder: Cursor, Codex, etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you've tried?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues before opening this one
+          required: true
+        - label: I would be willing to contribute a PR for this
+          required: false

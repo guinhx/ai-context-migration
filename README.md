@@ -1,188 +1,108 @@
-# ai-context-migration
+# ctx — AI Context Migration CLI
 
-A Bun-native CLI to migrate AI context and conversation threads between different AI providers — starting with **OpenAI Codex** (input) and **Cursor** (output).
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1)](https://bun.sh)
 
-## How It Works
-
-The tool connects to the locally installed Codex CLI via JSON-RPC 2.0 over stdio, reads your conversation threads, converts them to a canonical portable format, and writes them out in formats useful for other AI tools.
+**Migrate AI conversation threads between tools.** Read context from one agent (like OpenAI Codex) and export it in a format another agent (like Cursor) can use to continue the work.
 
 ```
-Codex (JSON-RPC) → Canonical Thread → Cursor (AGENTS.md / Markdown / JSON)
+Codex  →  canonical thread  →  AGENTS.md / Markdown / JSON  →  Cursor
 ```
 
-The **provider architecture** makes it straightforward to add support for additional AI tools in the future.
+## Why ctx?
 
-## License
+Switching AI coding agents usually means losing conversation history — project context, decisions, file changes, and where you left off. **ctx** extracts that history and converts it into portable, useful context files.
 
-MIT — see [LICENSE](LICENSE).
+## Quick start
 
-## Prerequisites
-
-- [Bun](https://bun.sh) ≥ 1.0
-- [OpenAI Codex](https://openai.com/index/introducing-codex/) desktop app installed (for the Codex provider)
-
-## Installation
+**Requirements:** [Bun](https://bun.sh) ≥ 1.0 · [OpenAI Codex](https://openai.com/codex) installed (for the Codex provider)
 
 ```sh
-git clone <repo>
+git clone https://github.com/guinhx/ai-context-migration.git
 cd ai-context-migration
 bun install
-```
-
-### Global install (use `ctx` from anywhere)
-
-#### Option A — Standalone binary (recommended, no runtime needed)
-
-Compiles everything into a single self-contained executable using `bun build --compile`:
-
-```sh
-bun run build
-# Creates dist/ctx.exe (Windows) or dist/ctx (Unix)
-```
-
-Then add the binary to your PATH:
-
-```powershell
-# Windows — copy to a directory already in PATH, e.g.:
-Copy-Item .\dist\ctx.exe "$env:USERPROFILE\AppData\Local\Microsoft\WindowsApps\ctx.exe"
-
-# Or add dist\ to your PATH permanently:
-$env:PATH += ";D:\Betel\ai-context-migration\dist"
-[Environment]::SetEnvironmentVariable("PATH", $env:PATH, "User")
+bun run link        # global `ctx` command (dev)
+# or: bun run build # standalone binary
 ```
 
 ```sh
-# Unix/macOS
-cp dist/ctx /usr/local/bin/ctx
-# or
-echo 'export PATH="$HOME/path/to/ai-context-migration/dist:$PATH"' >> ~/.bashrc
+ctx setup                              # first-time wizard
+ctx list                               # see your Codex threads
+ctx migrate <thread-id> --to=cursor    # export as AGENTS.md
 ```
 
-#### Option B — `bun link` (dev mode, requires Bun in PATH)
+Place the generated `AGENTS-<id>.md` in your project as `AGENTS.md` and start a new Cursor chat — the agent picks up where Codex left off.
 
-Links the source directly — any changes to the code take effect immediately.
-Bun places the binary in `~/.bun/bin/` which is typically already in your PATH.
+→ Full walkthrough: [Getting started](docs/getting-started.md)
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `ctx setup` | Interactive configuration wizard |
+| `ctx list` | List threads from an input provider |
+| `ctx read <id>` | Display a thread in the terminal |
+| `ctx export <id>` | Export canonical JSON |
+| `ctx migrate <id>` | Convert thread to another format |
+| `ctx migrate --all` | Batch migrate all threads |
 
 ```sh
-bun run link
-# Equivalent to: cd packages/cli && bun link
+ctx migrate <id> --format=agents-md   # Cursor context (default)
+ctx migrate <id> --format=markdown    # full conversation log
+ctx migrate <id> --format=json        # portable JSON
 ```
 
-After linking, `ctx` is available globally:
+→ All options: [Usage guide](docs/usage.md)
 
-```sh
-ctx --help
-ctx setup
-ctx list
-```
-
-To unlink later:
-
-```sh
-bun unlink --cwd packages/cli
-```
-
-## Usage
-
-```sh
-# List all Codex threads
-bun ctx list
-
-# List with a limit
-bun ctx list --limit=20
-
-# Read and display a thread
-bun ctx read <thread-id>
-
-# Export as portable canonical JSON
-bun ctx export <thread-id> --from=codex --out=./thread.json
-
-# Migrate to an AGENTS.md file (best for "continue work" use case)
-bun ctx migrate <thread-id> --from=codex --to=cursor --format=agents-md --out=./
-
-# Migrate to full conversation Markdown
-bun ctx migrate <thread-id> --from=codex --to=cursor --format=markdown --out=./docs/
-
-# Migrate all threads at once
-bun ctx migrate --all --from=codex --to=cursor --out=./context/
-```
-
-## Output Formats
+## Output formats
 
 | Format | File | Best for |
 |--------|------|----------|
-| `agents-md` | `AGENTS-<id>.md` | Feeding context to Cursor to continue work |
-| `markdown` | `thread-<id>.md` | Human-readable conversation log |
-| `json` | `thread-<id>.json` | Portable canonical format, import elsewhere |
+| `agents-md` | `AGENTS-<id>.md` | Continue work in Cursor |
+| `markdown` | `thread-<id>.md` | Human-readable archive |
+| `json` | `thread-<id>.json` | Custom integrations |
 
-### AGENTS.md
+→ Details: [Output formats](docs/output-formats.md)
 
-The `agents-md` format generates a structured context file you can place in your project root or `.cursor/` directory. Cursor will automatically pick it up as context when you start a new chat.
+## Documentation
 
-It includes:
-- Original request / task description
-- All files that were changed (with diffs)
-- Commands that were executed
-- Key reasoning / decisions
-- Todo/plan status
-- Last assistant message (current state)
+| Guide | |
+|-------|---|
+| [Getting started](docs/getting-started.md) | 5-minute setup |
+| [Installation](docs/installation.md) | Global install, PATH, binary build |
+| [Configuration](docs/configuration.md) | Config file and env vars |
+| [Architecture](docs/architecture.md) | How it works under the hood |
+| [Providers](docs/providers.md) | Add support for new AI tools |
+| [Troubleshooting](docs/troubleshooting.md) | Common errors |
+| [Contributing](docs/contributing.md) | Development guide |
 
-## Environment Variables
+## Providers
 
-Copy [`.env.example`](.env.example) to `.env` if you want local overrides (`.env` is gitignored).
+| Role | Provider | Status |
+|------|----------|--------|
+| Input | OpenAI Codex | ✅ |
+| Output | Cursor (AGENTS.md / Markdown / JSON) | ✅ |
 
-| Variable | Description |
-|----------|-------------|
-| `CODEX_CLI_PATH` | Override path to the `codex` executable |
-| `XDG_CONFIG_HOME` | Base directory for config (default: `~/.ctx/config.json`) |
+The provider architecture makes it straightforward to add Claude Code, ChatGPT, Windsurf, and others. See [Providers](docs/providers.md).
 
-## What is not committed
-
-The repo ignores build artifacts (`dist/`, compiled `ctx` binaries), dependencies (`node_modules/`), secrets (`.env`), IDE state (`.cursor/`), and migration outputs (`AGENTS-*.md`, `thread-*.md/json`) generated in your working directory.
-
-## Architecture
+## Project structure
 
 ```
 packages/
-├── core/              @ctx/core       — Canonical types + provider interfaces
-├── cli/               @ctx/cli        — CLI entry point + commands
-├── provider-codex/    @ctx/provider-codex  — Codex input provider
-└── provider-cursor/   @ctx/provider-cursor — Cursor output provider
+├── core/              @ctx/core           — canonical types + interfaces
+├── cli/               @ctx/cli            — CLI commands
+├── provider-codex/    @ctx/provider-codex — Codex input
+└── provider-cursor/   @ctx/provider-cursor — Cursor output
 ```
 
-### Adding a New Provider
+## Contributing
 
-**Input provider** (read from a new AI):
+Contributions are welcome — bug reports, new providers, docs improvements.
 
-```typescript
-import type { InputProvider, ListOptions, Thread, ThreadSummary } from "@ctx/core";
+1. Read [Contributing](docs/contributing.md)
+2. Open an issue using the [templates](.github/ISSUE_TEMPLATE/)
+3. Submit a PR
 
-export class MyProvider implements InputProvider {
-  readonly id = "myprovider";
-  readonly name = "My AI Tool";
+## License
 
-  async listThreads(opts?: ListOptions): Promise<ThreadSummary[]> { /* ... */ }
-  async readThread(id: string): Promise<Thread> { /* ... */ }
-  async close(): Promise<void> { /* ... */ }
-}
-```
-
-**Output provider** (write to a new AI's format):
-
-```typescript
-import type { OutputProvider, Thread, WriteOptions, WriteResult } from "@ctx/core";
-
-export class MyOutputProvider implements OutputProvider {
-  readonly id = "myoutput";
-  readonly name = "My Target AI";
-
-  async write(thread: Thread, opts?: WriteOptions): Promise<WriteResult> { /* ... */ }
-}
-```
-
-Then register them in `packages/cli/src/index.ts`:
-
-```typescript
-registry.registerInput(new MyProvider());
-registry.registerOutput(new MyOutputProvider());
-```
+[MIT](LICENSE) © 2026 [guinhx](https://github.com/guinhx)
