@@ -14,7 +14,10 @@ export class CursorProvider implements OutputProvider {
 
     switch (format) {
       case "agents-md": {
-        const content = generateAgentsMd(thread);
+        const content = generateAgentsMd(thread, {
+          mode: opts.agentsMdMode ?? "compact",
+          budget: opts.agentsMdBudget,
+        });
         const filename = `AGENTS-${sanitize(thread.id)}.md`;
         const path = join(outDir, filename);
         await Bun.write(path, content);

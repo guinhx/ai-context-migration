@@ -17,6 +17,17 @@ export interface WriteOptions {
   outDir?: string;
   /** Output format. Defaults to "agents-md". */
   format?: "agents-md" | "markdown" | "json";
+  /**
+   * agents-md generation mode.
+   *   "compact" (default) — smart filtering + size budget; ideal for AI context windows.
+   *   "full"              — no filtering, no truncation, all turns/diffs/commands included.
+   */
+  agentsMdMode?: "compact" | "full";
+  /**
+   * Custom hard budget in bytes for compact mode.
+   * Defaults to 32 000. Ignored in full mode.
+   */
+  agentsMdBudget?: number;
 }
 
 export interface WriteResult {

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { ParsedArgs } from "../args.ts";
-import { getFlag, getBoolFlag } from "../args.ts";
+import { getFlag, getBoolFlag, getNumberFlag } from "../args.ts";
 import { registry } from "@ctx/core";
 import type { Thread, WriteOptions } from "@ctx/core";
 import { log, info, success, warn, error, die, fmt } from "../output.ts";
@@ -20,11 +20,19 @@ export async function commandMigrate(args: ParsedArgs): Promise<void> {
   const migrateAll = getBoolFlag(args.flags, "all");
   const threadId = args.positional[0] ?? getFlag(args.flags, "id");
 
+  // agents-md output controls
+  const full = getBoolFlag(args.flags, "full");
+  const budgetKb = getNumberFlag(args.flags, "budget", 0);
+
   if (!migrateAll && !threadId) {
     die(
       "Usage:\n" +
-        "  ctx migrate <thread-id> --from=codex --to=cursor [--format=agents-md|markdown|json] [--out=./]\n" +
-        "  ctx migrate --all --from=codex --to=cursor [--format=agents-md] [--out=./]"
+        "  ctx migrate <thread-id> --from=codex --to=cursor [--format=agents-md|markdown|json]\n" +
+        "                          [--out=./] [--full] [--budget=<KB>]\n" +
+        "  ctx migrate --all --from=codex --to=cursor [--format=agents-md] [--out=./]\n" +
+        "\n" +
+        "  --full          No filtering or truncation (complete history)\n" +
+        "  --budget=<KB>   Custom size cap for agents-md compact mode (default: 32)"
     );
   }
 
@@ -44,7 +52,12 @@ export async function commandMigrate(args: ParsedArgs): Promise<void> {
   }
 
   const absOutDir = resolve(outDir);
-  const writeOpts: WriteOptions = { outDir: absOutDir, format };
+  const writeOpts: WriteOptions = {
+    outDir: absOutDir,
+    format,
+    agentsMdMode: full ? "full" : "compact",
+    agentsMdBudget: budgetKb > 0 ? budgetKb * 1024 : undefined,
+  };
 
   if (migrateAll) {
     await migrateAllThreads(inputProvider, outputProvider, writeOpts);

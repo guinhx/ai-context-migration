@@ -1,121 +1,259 @@
-import type { Thread, Turn, TurnItem } from "@ctx/core";
+import type { Thread } from "@ctx/core";
 
 // ---------------------------------------------------------------------------
-// AGENTS.md generator
-//
-// Produces a structured context file that helps a new AI (Cursor) understand:
-// - What project was being worked on
-// - What was accomplished (file changes, commands)
-// - Key decisions and reasoning
-// - Current state and next steps
+// Options
 // ---------------------------------------------------------------------------
 
-export function generateAgentsMd(thread: Thread): string {
+export interface AgentsMdOptions {
+  /**
+   * "compact" (default) — smart filtering + size budget; ideal for AI context windows.
+   * "full"              — no filtering, no truncation; complete history preserved.
+   */
+  mode?: "compact" | "full";
+  /**
+   * Hard budget in bytes for compact mode. Defaults to 32 000 (~8K tokens).
+   * Ignored when mode is "full".
+   */
+  budget?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Budget defaults for compact mode
+// ---------------------------------------------------------------------------
+
+const DEFAULTS = {
+  totalChars: 32_000,
+  requestChars: 500,
+  lastMsgChars: 800,
+  diffLines: 40,
+  diffsShown: 3,
+  filesListed: 30,
+  commands: 15,
+  reasoningItems: 4,
+  reasoningChars: 200,
+  recentTurns: 4,
+  turnTextChars: 300,
+} as const;
+
+// In full mode every limit is effectively infinite
+const UNLIMITED = 999_999_999;
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
+export function generateAgentsMd(thread: Thread, opts: AgentsMdOptions = {}): string {
+  const full = opts.mode === "full";
+  const budget = full ? UNLIMITED : (opts.budget ?? DEFAULTS.totalChars);
+
+  const lim = full
+    ? {
+        requestChars: UNLIMITED,
+        lastMsgChars: UNLIMITED,
+        diffLines: UNLIMITED,
+        diffsShown: UNLIMITED,
+        filesListed: UNLIMITED,
+        commands: UNLIMITED,
+        reasoningItems: UNLIMITED,
+        reasoningChars: UNLIMITED,
+        recentTurns: thread.turns.length,
+        turnTextChars: UNLIMITED,
+      }
+    : {
+        requestChars: DEFAULTS.requestChars,
+        lastMsgChars: DEFAULTS.lastMsgChars,
+        diffLines: DEFAULTS.diffLines,
+        diffsShown: DEFAULTS.diffsShown,
+        filesListed: DEFAULTS.filesListed,
+        commands: DEFAULTS.commands,
+        reasoningItems: DEFAULTS.reasoningItems,
+        reasoningChars: DEFAULTS.reasoningChars,
+        recentTurns: DEFAULTS.recentTurns,
+        turnTextChars: DEFAULTS.turnTextChars,
+      };
+
   const sections: string[] = [];
 
-  sections.push(buildHeader(thread));
-  sections.push(buildProjectContext(thread));
+  sections.push(buildHeader(thread, full));
+  sections.push(buildTask(thread, lim.requestChars, !full));
 
-  const fileChanges = collectFileChanges(thread);
-  if (fileChanges.length > 0) {
-    sections.push(buildFileChangeSection(fileChanges));
+  const state = buildCurrentState(thread, lim.lastMsgChars);
+  if (state) sections.push(state);
+
+  const fileSection = buildFilesChanged(thread, lim.filesListed, lim.diffsShown, lim.diffLines);
+  if (fileSection) sections.push(fileSection);
+
+  const cmdSection = buildCommands(thread, lim.commands, full);
+  if (cmdSection) sections.push(cmdSection);
+
+  const todoSection = buildTodo(thread);
+  if (todoSection) sections.push(todoSection);
+
+  const reasoningSection = buildReasoning(thread, lim.reasoningItems, lim.reasoningChars);
+  if (reasoningSection) sections.push(reasoningSection);
+
+  const recapSection = buildRecentRecap(thread, lim.recentTurns, lim.turnTextChars);
+  if (recapSection) sections.push(recapSection);
+
+  sections.push(buildFooter(thread, full));
+
+  const output = sections.filter(Boolean).join("\n\n") + "\n";
+
+  if (!full && output.length > budget) {
+    return (
+      output.slice(0, budget) +
+      "\n\n---\n_Context truncated to budget. Use `--full` for the complete output or `--format=markdown` for the full conversation._\n"
+    );
   }
 
-  const commands = collectCommands(thread);
-  if (commands.length > 0) {
-    sections.push(buildCommandsSection(commands));
-  }
-
-  const decisions = collectDecisions(thread);
-  if (decisions.length > 0) {
-    sections.push(buildDecisionsSection(decisions));
-  }
-
-  const todoSteps = collectTodoSteps(thread);
-  if (todoSteps.length > 0) {
-    sections.push(buildTodoSection(todoSteps));
-  }
-
-  sections.push(buildConversationSummary(thread));
-
-  return sections.filter(Boolean).join("\n\n") + "\n";
+  return output;
 }
 
 // ---------------------------------------------------------------------------
 // Section builders
 // ---------------------------------------------------------------------------
 
-function buildHeader(thread: Thread): string {
+function buildHeader(thread: Thread, full: boolean): string {
   const title = thread.title ?? `Thread ${thread.id}`;
-  const lines = [
-    `# ${title}`,
-    "",
-    `> Migrated from **${thread.provider}** · ID: \`${thread.id}\``,
-  ];
+  const lines = [`# ${title}`, ""];
 
-  if (thread.cwd) {
-    lines.push(`> Working directory: \`${thread.cwd}\``);
-  }
-  if (thread.model) {
-    lines.push(`> Model: \`${thread.model}\``);
-  }
-  if (thread.updatedAt) {
-    lines.push(`> Last updated: ${formatDate(thread.updatedAt)}`);
-  }
+  const meta: string[] = [];
+  if (thread.provider) meta.push(`**Source:** ${thread.provider}`);
+  if (thread.cwd) meta.push(`**CWD:** \`${thread.cwd}\``);
+  if (thread.model) meta.push(`**Model:** ${thread.model}`);
+  if (thread.updatedAt) meta.push(`**Last updated:** ${formatDate(thread.updatedAt)}`);
+  meta.push(`**Thread ID:** \`${thread.id}\``);
+  if (full) meta.push(`**Mode:** full`);
 
+  lines.push(meta.join(" · "));
   return lines.join("\n");
 }
 
-function buildProjectContext(thread: Thread): string {
-  const lines = ["## Project Context"];
+/**
+ * Task description: uses the last substantive user message (>80 chars after cleaning),
+ * falling back to the first one. This captures the current task better than
+ * always using the first message, which is often IDE context or boilerplate.
+ */
+function buildTask(thread: Thread, maxChars: number, filter: boolean): string {
+  const SUBSTANCE_THRESHOLD = 80;
 
-  if (thread.cwd) {
-    lines.push(``, `**Root directory:** \`${thread.cwd}\``);
+  // Collect all user text items
+  const candidates: string[] = [];
+  for (const turn of thread.turns) {
+    if (turn.role !== "user") continue;
+    for (const item of turn.items) {
+      if (item.type === "text" && item.text.trim().length > SUBSTANCE_THRESHOLD) {
+        candidates.push(item.text.trim());
+      }
+    }
   }
 
-  // Extract the first user message as the project description
-  const firstUser = findFirstUserText(thread);
-  if (firstUser) {
-    lines.push(
-      ``,
-      `**Original request:**`,
-      ``,
-      `> ${firstUser.split("\n").join("\n> ")}`
-    );
+  if (candidates.length === 0) return "";
+
+  // Prefer last substantive message; if it's clearly a continuation ("continue",
+  // "prossiga", "ok", etc.) walk backwards to find one with real content.
+  let chosen = candidates[candidates.length - 1]!;
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const c = candidates[i]!;
+    if (!/^(continue|prossig|ok\b|sim\b|yes\b|go\b|proceed)/i.test(c.trim())) {
+      chosen = c;
+      break;
+    }
   }
 
-  return lines.join("\n");
+  const cleaned = filter ? cleanUserText(chosen) : chosen;
+  const snippet = truncate(cleaned, maxChars);
+
+  return `## Task\n\n${snippet}`;
 }
 
-function buildFileChangeSection(
-  changes: Array<{ path: string; kind?: string; diff?: string }>
+/**
+ * Last substantive assistant message (>80 chars).
+ * Skips short transitional messages like "Ok" or "Let me check...".
+ */
+function buildCurrentState(thread: Thread, maxChars: number): string {
+  const SUBSTANCE_THRESHOLD = 80;
+  for (let i = thread.turns.length - 1; i >= 0; i--) {
+    const turn = thread.turns[i];
+    if (!turn || turn.role !== "assistant") continue;
+    for (const item of [...turn.items].reverse()) {
+      if (item.type === "text" && item.text.trim().length >= SUBSTANCE_THRESHOLD) {
+        return `## Current State\n\n${truncate(item.text.trim(), maxChars)}`;
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * Deduplicated list of files changed, ordered by last-modified turn index
+ * (most recently touched files last → slice(-N) picks the truly recent ones).
+ * Only the most recent diff per file is kept.
+ */
+function buildFilesChanged(
+  thread: Thread,
+  maxFiles: number,
+  maxDiffs: number,
+  maxDiffLines: number
 ): string {
-  const lines = ["## Files Changed"];
-  lines.push("");
+  // Map: path → { kind, diff, lastTurnIdx }
+  const byPath = new Map<string, { kind?: string; diff?: string; lastTurnIdx: number }>();
 
-  const byPath = new Map<string, typeof changes[number]>();
-  for (const c of changes) {
-    // Later changes win (most recent state)
-    byPath.set(c.path, c);
+  thread.turns.forEach((turn, turnIdx) => {
+    for (const item of turn.items) {
+      if (item.type === "file_change") {
+        byPath.set(item.path, {
+          kind: item.changeKind,
+          diff: item.diff,
+          lastTurnIdx: turnIdx,  // always overwrite → keeps most recent
+        });
+      }
+    }
+  });
+
+  if (byPath.size === 0) return "";
+
+  // Sort by last modified turn ascending so slice(-N) gives the N most recently touched
+  const sorted = [...byPath.entries()].sort(
+    ([, a], [, b]) => a.lastTurnIdx - b.lastTurnIdx
+  );
+
+  const omittedFiles = Math.max(0, sorted.length - maxFiles);
+  const listedEntries = sorted.slice(-maxFiles);
+
+  const lines = ["## Files Changed", ""];
+
+  if (omittedFiles > 0) {
+    lines.push(`_(${omittedFiles} earlier files omitted — use \`--full\` to see all)_`, "");
   }
 
-  for (const [path, info] of byPath) {
+  for (const [path, info] of listedEntries) {
     const badge = info.kind ? ` _(${info.kind})_` : "";
     lines.push(`- \`${path}\`${badge}`);
   }
 
-  // Include diffs for files that have them (collapsed under details)
-  const withDiff = [...byPath.values()].filter((c) => c.diff);
+  const withDiff = listedEntries
+    .filter(([, v]) => v.diff)
+    .slice(-maxDiffs);
+
   if (withDiff.length > 0) {
-    lines.push("", "### Diffs");
-    for (const c of withDiff) {
+    const diffLabel = omittedFiles > 0 ? "### Key diffs (most recently changed)" : "### Diffs";
+    lines.push("", diffLabel);
+    for (const [path, info] of withDiff) {
+      const diffLines = (info.diff ?? "").split("\n");
+      const shown =
+        diffLines.length > maxDiffLines
+          ? diffLines.slice(0, maxDiffLines).join("\n") +
+            `\n... (+${diffLines.length - maxDiffLines} lines omitted — use \`--full\` to see all)`
+          : info.diff ?? "";
+
       lines.push(
         "",
         `<details>`,
-        `<summary><code>${c.path}</code></summary>`,
+        `<summary><code>${path}</code></summary>`,
         "",
         "```diff",
-        c.diff ?? "",
+        shown,
         "```",
         "",
         "</details>"
@@ -126,189 +264,245 @@ function buildFileChangeSection(
   return lines.join("\n");
 }
 
-function buildCommandsSection(
-  commands: Array<{ command: string; output?: string; exitCode?: number | null; status?: string }>
+/**
+ * Commands list. Keeps the LAST occurrence of each unique command so the
+ * final exit code (success after retries) is shown, not the first attempt.
+ * Trivial navigation commands (cd, ls, dir, echo, clear, cls) are skipped.
+ * In full mode every run is included (with output); in compact, last-unique + no output.
+ */
+function buildCommands(
+  thread: Thread,
+  maxCommands: number,
+  includeOutput: boolean
 ): string {
-  const lines = ["## Commands Executed"];
-  lines.push("");
+  const TRIVIAL = /^(cd|ls|dir|echo|clear|cls|pwd|exit)\b/i;
 
-  for (const cmd of commands) {
-    const statusBadge =
-      cmd.exitCode != null
-        ? cmd.exitCode === 0
-          ? " ✓"
-          : ` ✗ (exit ${cmd.exitCode})`
-        : cmd.status
-          ? ` [${cmd.status}]`
-          : "";
+  if (includeOutput) {
+    // Full mode: every execution in order, with output
+    const all: Array<{ command: string; output?: string; exitCode?: number | null }> = [];
+    for (const turn of thread.turns) {
+      for (const item of turn.items) {
+        if (item.type === "command") {
+          all.push({ command: item.command, output: item.output, exitCode: item.exitCode });
+        }
+      }
+    }
 
-    lines.push(`\`\`\`sh${statusBadge}`);
-    lines.push(cmd.command);
-    lines.push("```");
+    if (all.length === 0) return "";
+    const shown = all.slice(-maxCommands);
+    const omitted = all.length - shown.length;
+    const lines = ["## Commands Executed", ""];
+    if (omitted > 0) lines.push(`_(${omitted} earlier commands omitted)_`, "");
+    for (const { command, output, exitCode } of shown) {
+      const badge = exitCode != null ? (exitCode === 0 ? " ✓" : ` ✗ exit ${exitCode}`) : "";
+      lines.push(`\`\`\`sh${badge}`);
+      lines.push(command);
+      lines.push("```");
+      if (output) {
+        lines.push(`<details><summary>output</summary>\n\n\`\`\`\n${output}\n\`\`\`\n\n</details>`);
+      }
+      lines.push("");
+    }
+    return lines.join("\n");
+  }
 
-    if (cmd.output) {
-      const truncated =
-        cmd.output.length > 1000
-          ? cmd.output.slice(0, 1000) + "\n... (truncated)"
-          : cmd.output;
-      lines.push(`<details><summary>output</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n\n</details>`);
+  // Compact mode: keep LAST occurrence per unique command (last exit code wins)
+  const lastByCmd = new Map<
+    string,
+    { command: string; exitCode?: number | null; order: number }
+  >();
+  let order = 0;
+  for (const turn of thread.turns) {
+    for (const item of turn.items) {
+      if (item.type === "command" && !TRIVIAL.test(item.command.trim())) {
+        lastByCmd.set(item.command, {
+          command: item.command,
+          exitCode: item.exitCode,
+          order: order++,
+        });
+      }
+    }
+  }
+
+  if (lastByCmd.size === 0) return "";
+
+  // Sort by last-seen order so slice(-N) picks the most recently executed
+  const sorted = [...lastByCmd.values()].sort((a, b) => a.order - b.order);
+  const shown = sorted.slice(-maxCommands);
+  const omitted = sorted.length - shown.length;
+
+  const lines = ["## Commands Executed", ""];
+  if (omitted > 0) {
+    lines.push(`_(${omitted} earlier commands omitted — use \`--full\` to see all)_`, "");
+  }
+
+  // Surface any failing command prominently
+  const failures = shown.filter((c) => c.exitCode != null && c.exitCode !== 0);
+  if (failures.length > 0) {
+    lines.push("**⚠ Commands with non-zero exit:**");
+    for (const { command, exitCode } of failures) {
+      lines.push(`- \`${command}\` → exit ${exitCode}`);
     }
     lines.push("");
   }
 
-  return lines.join("\n");
-}
-
-function buildDecisionsSection(decisions: string[]): string {
-  const lines = [
-    "## Key Decisions & Reasoning",
-    "",
-    ...decisions.map((d, i) => `${i + 1}. ${d.split("\n").join(" ").slice(0, 300)}`),
-  ];
-  return lines.join("\n");
-}
-
-function buildTodoSection(
-  steps: Array<{ step: string; status: string }>
-): string {
-  const lines = ["## Todo / Plan Status", ""];
-
-  for (const { step, status } of steps) {
-    const icon =
-      status === "completed"
-        ? "- [x]"
-        : status === "in_progress"
-          ? "- [ ] *(in progress)*"
-          : "- [ ]";
-    lines.push(`${icon} ${step}`);
+  lines.push("```sh");
+  for (const { command, exitCode } of shown) {
+    const badge =
+      exitCode != null ? (exitCode === 0 ? "  # ✓" : `  # ✗ exit ${exitCode}`) : "";
+    lines.push(command + badge);
   }
+  lines.push("```");
 
   return lines.join("\n");
 }
 
-function buildConversationSummary(thread: Thread): string {
-  const lines = ["## Conversation Summary", ""];
-
-  const userTurns = thread.turns.filter((t) => t.role === "user");
-  const assistantTurns = thread.turns.filter((t) => t.role === "assistant");
-
-  lines.push(
-    `This thread contains **${thread.turns.length} turns** ` +
-      `(${userTurns.length} user, ${assistantTurns.length} assistant).`
-  );
-
-  // Last assistant message as "current state"
-  const lastAssistant = findLastAssistantText(thread);
-  if (lastAssistant) {
-    lines.push("", "**Last assistant message:**", "", `> ${lastAssistant.split("\n").slice(0, 10).join("\n> ")}`);
-  }
-
-  lines.push(
-    "",
-    "---",
-    "",
-    "_This file was auto-generated by `ctx migrate`. To continue this work in Cursor,_",
-    "_place this file in your project root or `.cursor/` directory and start a new chat._"
-  );
-
-  return lines.join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// Data collectors
-// ---------------------------------------------------------------------------
-
-function collectFileChanges(
-  thread: Thread
-): Array<{ path: string; kind?: string; diff?: string }> {
-  const results: Array<{ path: string; kind?: string; diff?: string }> = [];
-  for (const turn of thread.turns) {
-    for (const item of turn.items) {
-      if (item.type === "file_change") {
-        results.push({
-          path: item.path,
-          kind: item.changeKind,
-          diff: item.diff,
-        });
-      }
-    }
-  }
-  return results;
-}
-
-function collectCommands(
-  thread: Thread
-): Array<{ command: string; output?: string; exitCode?: number | null; status?: string }> {
-  const results: Array<{ command: string; output?: string; exitCode?: number | null; status?: string }> = [];
-  for (const turn of thread.turns) {
-    for (const item of turn.items) {
-      if (item.type === "command") {
-        results.push({
-          command: item.command,
-          output: item.output,
-          exitCode: item.exitCode,
-          status: item.status,
-        });
-      }
-    }
-  }
-  return results;
-}
-
-function collectDecisions(thread: Thread): string[] {
-  const results: string[] = [];
-  for (const turn of thread.turns) {
-    if (turn.role !== "assistant") continue;
-    for (const item of turn.items) {
-      if (item.type === "reasoning" && item.text.length > 20) {
-        results.push(item.text);
-      }
-    }
-  }
-  return results.slice(0, 10); // Cap at 10 reasoning items
-}
-
-function collectTodoSteps(
-  thread: Thread
-): Array<{ step: string; status: string }> {
-  // Return the most recent todo-list
+/** Most recent todo list found in the thread. */
+function buildTodo(thread: Thread): string {
   for (let i = thread.turns.length - 1; i >= 0; i--) {
     const turn = thread.turns[i];
     if (!turn) continue;
     for (const item of turn.items) {
-      if (item.type === "todo_list") {
-        return item.steps;
+      if (item.type === "todo_list" && item.steps.length > 0) {
+        const lines = ["## Plan Status", ""];
+        if (item.explanation) lines.push(item.explanation, "");
+        for (const { step, status } of item.steps) {
+          const icon =
+            status === "completed"
+              ? "- [x]"
+              : status === "in_progress"
+                ? "- [ ] _(in progress)_"
+                : "- [ ]";
+          lines.push(`${icon} ${step}`);
+        }
+        return lines.join("\n");
       }
     }
   }
-  return [];
+  return "";
 }
 
-function findFirstUserText(thread: Thread): string | null {
-  for (const turn of thread.turns) {
-    if (turn.role !== "user") continue;
-    for (const item of turn.items) {
-      if (item.type === "text" && item.text.trim()) {
-        return item.text.trim();
-      }
-    }
-  }
-  return null;
-}
+/**
+ * Most recent reasoning snippets — iterates from the END of the thread so we
+ * capture the latest decisions, not the ones from early turns that may be stale.
+ */
+function buildReasoning(thread: Thread, maxItems: number, maxChars: number): string {
+  const items: string[] = [];
 
-function findLastAssistantText(thread: Thread): string | null {
-  for (let i = thread.turns.length - 1; i >= 0; i--) {
+  for (let i = thread.turns.length - 1; i >= 0 && items.length < maxItems; i--) {
     const turn = thread.turns[i];
     if (!turn || turn.role !== "assistant") continue;
     for (const item of [...turn.items].reverse()) {
-      if (item.type === "text" && item.text.trim()) {
-        return item.text.trim();
+      if (item.type === "reasoning" && item.text.trim().length > 30) {
+        // Use first non-empty line as the decision headline
+        const headline =
+          item.text.split("\n").find((l) => l.trim().length > 20) ?? item.text;
+        items.push(truncate(headline.trim(), maxChars));
+        if (items.length >= maxItems) break;
       }
     }
   }
-  return null;
+
+  if (items.length === 0) return "";
+
+  // Reverse so they appear in chronological order in the output
+  items.reverse();
+  const lines = ["## Key Decisions", ""];
+  items.forEach((d, i) => lines.push(`${i + 1}. ${d}`));
+  return lines.join("\n");
 }
 
-function formatDate(timestamp: number): string {
-  return new Date(timestamp < 1e12 ? timestamp * 1000 : timestamp).toLocaleString();
+/**
+ * Recent conversation recap. Uses only `type === "text"` items (the actual
+ * human-visible content), not reasoning — reasoning is surfaced separately.
+ * Falls back to the first non-empty text if none found in a turn.
+ */
+function buildRecentRecap(thread: Thread, maxTurns: number, maxTextChars: number): string {
+  const recent = thread.turns.slice(-maxTurns);
+  if (recent.length === 0) return "";
+
+  const label =
+    maxTurns >= thread.turns.length ? "## Full Conversation" : "## Recent Conversation";
+  const lines = [label, ""];
+
+  for (const turn of recent) {
+    const roleLabel = turn.role === "user" ? "**User**" : "**Assistant**";
+
+    // Prefer explicit text items; skip pure-reasoning turns in the recap
+    const textItems = turn.items
+      .filter((i) => i.type === "text")
+      .map((i) => (i as { text: string }).text.trim())
+      .filter(Boolean);
+
+    if (textItems.length === 0) continue;
+
+    const combined = textItems.join(" ").replace(/\n+/g, " ");
+    lines.push(`${roleLabel}: ${truncate(combined, maxTextChars)}`);
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}
+
+function buildFooter(thread: Thread, full: boolean): string {
+  const total = thread.turns.length;
+  const lines = [
+    "---",
+    `_Migrated from **${thread.provider}** · ${total} turn${total === 1 ? "" : "s"} total._`,
+  ];
+  if (!full) {
+    lines.push(`_For the full conversation: \`ctx migrate ${thread.id} --format=markdown\`_`);
+    lines.push(`_For unfiltered agents-md: \`ctx migrate ${thread.id} --full\`_`);
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + "…";
+}
+
+/**
+ * Strip noise from user messages: log lines, hex dumps, stack traces,
+ * IDE metadata headers. Return the meaningful part only.
+ */
+function cleanUserText(raw: string): string {
+  const lines = raw.split("\n");
+
+  // If the message contains "My request for Codex:" or similar,
+  // extract just that section, then still apply noise filtering
+  const requestIdx = lines.findIndex((l) =>
+    /my request (for codex|to codex)?:/i.test(l)
+  );
+  const sourceLines = requestIdx !== -1 ? lines.slice(requestIdx + 1) : lines;
+
+  // Filter out noisy lines
+  const cleaned = sourceLines.filter((l) => {
+    const t = l.trim();
+    if (!t) return false;
+    // Structured log lines: [HH:MM:SS DBG/INF/ERR/WRN] …
+    if (/^\[\d{2}:\d{2}:\d{2}(\.\d+)?\s+(DBG|INF|WRN|ERR|VRB|FTL|TRC)]/i.test(t)) return false;
+    // Hex dump lines: "0000: AA BB CC …"
+    if (/^[0-9a-f]{4}:\s+([0-9a-f]{2}\s+){3,}/i.test(t)) return false;
+    // .NET / Java stack trace lines: "   at Namespace.Class.Method("
+    if (/^\s{3,}at\s+[\w.<>[\]]+\(/.test(t)) return false;
+    // IDE context headers injected by Cursor/Codex IDE plugin
+    if (/^##\s+(Active file|Open tabs|Active selection|My request)/i.test(t)) return false;
+    // IDE tab list lines: "- README.md: path/to/file"
+    if (/^-\s+\w[\w. ]+:\s+\S+[/\\]\S+$/.test(t)) return false;
+    // Long repeated separator lines (===, ---, ___)
+    if (/^[-=_]{20,}$/.test(t)) return false;
+    return true;
+  });
+
+  return cleaned.join("\n").trim();
+}
+
+
+function formatDate(ts: number): string {
+  return new Date(ts < 1e12 ? ts * 1000 : ts).toLocaleString();
 }
