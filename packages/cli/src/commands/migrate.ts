@@ -27,7 +27,8 @@ export async function commandMigrate(args: ParsedArgs): Promise<void> {
   if (!migrateAll && !threadId) {
     die(
       "Usage:\n" +
-        "  ctx migrate <thread-id> --from=codex --to=cursor [--format=agents-md|markdown|json]\n" +
+        "  ctx migrate <thread-id> --from=codex --to=cursor\n" +
+        "                          [--format=agents-md|markdown|json|handoff|cursor-rules]\n" +
         "                          [--out=./] [--full] [--budget=<KB>]\n" +
         "  ctx migrate --all --from=codex --to=cursor [--format=agents-md] [--out=./]\n" +
         "\n" +

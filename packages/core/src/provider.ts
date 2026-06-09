@@ -16,7 +16,7 @@ export interface WriteOptions {
   /** Destination directory for output files. Defaults to cwd. */
   outDir?: string;
   /** Output format. Defaults to "agents-md". */
-  format?: "agents-md" | "markdown" | "json";
+  format?: "agents-md" | "markdown" | "json" | "handoff" | "cursor-rules";
   /**
    * agents-md generation mode.
    *   "compact" (default) — smart filtering + size budget; ideal for AI context windows.
@@ -28,6 +28,11 @@ export interface WriteOptions {
    * Defaults to 32 000. Ignored in full mode.
    */
   agentsMdBudget?: number;
+  /**
+   * Max chars per `.mdc` rule file for cursor-rules format.
+   * Defaults to 2 500 (Cursor rule size limit). Ignored for other formats.
+   */
+  cursorRulesBudget?: number;
 }
 
 export interface WriteResult {

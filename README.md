@@ -3,7 +3,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1)](https://bun.sh)
 
-**Migrate AI conversation threads between tools.** Read context from one agent (like OpenAI Codex) and export it in a format another agent (like Cursor) can use to continue the work.
+**AI Context Migration — thread history export and handoff between coding agents.**
+
+Read context from one agent (like OpenAI Codex) and export it in a format another agent (like Cursor) can use to continue the work.
+
+> **Not [ai-context-bridge](https://github.com/himanshuskukla/ai-context-bridge)** — that project is a git-hook tool that also ships a `ctx` binary. This repo migrates **conversation threads** to AGENTS.md / Markdown / JSON. Primary command: `ctx`. Alias: `ctx-migrate` (same binary, clearer name on PATH).
 
 ```
 Codex  →  canonical thread  →  AGENTS.md / Markdown / JSON  →  Cursor
@@ -13,6 +17,15 @@ Codex  →  canonical thread  →  AGENTS.md / Markdown / JSON  →  Cursor
 
 Switching AI coding agents usually means losing conversation history — project context, decisions, file changes, and where you left off. **ctx** extracts that history and converts it into portable, useful context files.
 
+## Compare
+
+| Tool | Focus | Overlap with ctx |
+|------|--------|------------------|
+| **ctx** (this repo) | Export/migrate **thread history** → AGENTS.md, Markdown, JSON | — |
+| [agent-migrator](https://github.com/softaworks/agent-migrator) | Move agent **config & rules** between IDEs | Complementary — use after ctx for rules/skills |
+| [ai-context-bridge](https://github.com/himanshuskukla/ai-context-bridge) | Git-hook **context sync** via `ctx` CLI | Different problem — hooks, not thread export |
+| [ai-sync](https://github.com/johnlindquist/ai-sync) | Sync **AGENTS.md / rules** across repos | Complementary — keeps files in sync; ctx creates them from threads |
+
 ## Quick start
 
 **Requirements:** [Bun](https://bun.sh) ≥ 1.0 · [OpenAI Codex](https://openai.com/codex) installed (for the Codex provider)
@@ -21,8 +34,8 @@ Switching AI coding agents usually means losing conversation history — project
 git clone https://github.com/guinhx/ai-context-migration.git
 cd ai-context-migration
 bun install
-bun run link        # global `ctx` command (dev)
-# or: bun run build # standalone binary
+bun run link        # global `ctx` and `ctx-migrate` (dev)
+# or: bun run build # standalone binary → dist/ctx
 ```
 
 ```sh
@@ -45,11 +58,14 @@ Place the generated `AGENTS-<id>.md` in your project as `AGENTS.md` and start a 
 | `ctx export <id>` | Export canonical JSON |
 | `ctx migrate <id>` | Convert thread to another format |
 | `ctx migrate --all` | Batch migrate all threads |
+| `ctx validate` | Check AGENTS.md commands/paths against the repo |
 
 ```sh
 ctx migrate <id> --format=agents-md   # Cursor context (default)
 ctx migrate <id> --format=markdown    # full conversation log
 ctx migrate <id> --format=json        # portable JSON
+ctx validate                          # drift-check AGENTS.md vs package.json/Makefile
+ctx validate --file=HANDOFF.md
 ```
 
 → All options: [Usage guide](docs/usage.md)
@@ -80,10 +96,12 @@ ctx migrate <id> --format=json        # portable JSON
 
 | Role | Provider | Status |
 |------|----------|--------|
-| Input | OpenAI Codex | ✅ |
+| Input | OpenAI Codex | ✅ Stable |
+| Input | Claude Code | 🧪 Experimental |
+| Input | Cursor (JSONL / SQLite) | ✅ Stable |
 | Output | Cursor (AGENTS.md / Markdown / JSON) | ✅ |
 
-The provider architecture makes it straightforward to add Claude Code, ChatGPT, Windsurf, and others. See [Providers](docs/providers.md).
+The provider architecture makes it straightforward to add ChatGPT, Windsurf, and others. See [Providers](docs/providers.md).
 
 ## Project structure
 
@@ -92,6 +110,8 @@ packages/
 ├── core/              @ctx/core           — canonical types + interfaces
 ├── cli/               @ctx/cli            — CLI commands
 ├── provider-codex/    @ctx/provider-codex — Codex input
+├── provider-claude/   @ctx/provider-claude — Claude Code input
+├── provider-cursor-input/ @ctx/provider-cursor-input — Cursor input
 └── provider-cursor/   @ctx/provider-cursor — Cursor output
 ```
 

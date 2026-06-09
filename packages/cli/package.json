@@ -1,18 +1,22 @@
 {
   "name": "@ctx/cli",
   "version": "0.1.0",
+  "description": "AI Context Migration — export and hand off AI thread history between agents (not ai-context-bridge)",
   "private": true,
   "type": "module",
   "bin": {
-    "ctx": "./src/index.ts"
+    "ctx": "./src/index.ts",
+    "ctx-migrate": "./src/index.ts"
   },
   "scripts": {
     "build": "bun build ./src/index.ts --compile --outfile=../../dist/ctx"
   },
   "dependencies": {
     "@ctx/core": "workspace:*",
+    "@ctx/provider-claude": "workspace:*",
     "@ctx/provider-codex": "workspace:*",
     "@ctx/provider-cursor": "workspace:*",
+    "@ctx/provider-cursor-input": "workspace:*",
     "zod": "^3.25.55"
   }
 }

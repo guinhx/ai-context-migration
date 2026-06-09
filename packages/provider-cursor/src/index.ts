@@ -1,6 +1,8 @@
 import { join, resolve } from "node:path";
 import type { OutputProvider, Thread, WriteOptions, WriteResult } from "@ctx/core";
 import { generateAgentsMd } from "./agents-md.ts";
+import { generateCursorRules } from "./cursor-rules.ts";
+import { generateHandoffMd } from "./handoff-md.ts";
 import { generateMarkdown } from "./markdown.ts";
 
 export class CursorProvider implements OutputProvider {
@@ -43,6 +45,28 @@ export class CursorProvider implements OutputProvider {
         break;
       }
 
+      case "handoff": {
+        const content = generateHandoffMd(thread);
+        const filename = `HANDOFF-${sanitize(thread.id)}.md`;
+        const path = join(outDir, filename);
+        await Bun.write(path, content);
+        files.push(path);
+        break;
+      }
+
+      case "cursor-rules": {
+        const rules = generateCursorRules(thread, {
+          mode: opts.agentsMdMode ?? "compact",
+          budget: opts.cursorRulesBudget,
+        });
+        for (const rule of rules) {
+          const path = join(outDir, rule.filename);
+          await Bun.write(path, rule.content);
+          files.push(path);
+        }
+        break;
+      }
+
       default: {
         throw new Error(`Unknown output format: ${String(format)}`);
       }
@@ -57,4 +81,6 @@ function sanitize(id: string): string {
 }
 
 export { generateAgentsMd } from "./agents-md.ts";
+export { generateCursorRules } from "./cursor-rules.ts";
+export { generateHandoffMd } from "./handoff-md.ts";
 export { generateMarkdown } from "./markdown.ts";

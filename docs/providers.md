@@ -7,7 +7,13 @@ Providers are the extension points of **ctx**. Each provider implements either r
 | ID | Type | Package | Description |
 |----|------|---------|-------------|
 | `codex` | Input | `@ctx/provider-codex` | Reads threads via Codex `app-server` |
+| `claude` | Input | `@ctx/provider-claude` | Reads Claude Code sessions from `~/.claude/projects/**/*.jsonl` **(experimental)** |
+| `cursor` | Input | `@ctx/provider-cursor-input` | Reads Cursor agent transcripts (JSONL + SQLite fallback) |
 | `cursor` | Output | `@ctx/provider-cursor` | Writes AGENTS.md, Markdown, or JSON |
+
+### Claude Code (experimental)
+
+The `claude` input provider reads local JSONL session files. Anthropic does not publish a stable schema; compaction summaries, subagent sessions, and path encoding may not map fully to the canonical thread format. Prefer `--from=codex` or `--from=cursor` for production handoffs until this provider is marked stable.
 
 ## Input provider interface
 
@@ -78,9 +84,8 @@ Key design rule: **input providers normalize, output providers denormalize**. Th
 
 | Provider | Type | Notes |
 |----------|------|-------|
-| Claude Code | Input / Output | Read/write conversation logs |
 | ChatGPT | Input | Export-based or API |
-| Cursor | Input | Read agent transcripts (JSONL) |
+| Windsurf | Input / Output | Session export |
 | Generic JSON | Output | Already supported via `--format=json` |
 
 Contributions welcome — see [Contributing](contributing.md).

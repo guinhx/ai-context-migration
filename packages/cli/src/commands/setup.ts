@@ -21,6 +21,16 @@ const INPUT_PROVIDERS = [
     label: "OpenAI Codex",
     description: "Reads threads via codex app-server (JSON-RPC)",
   },
+  {
+    value: "claude" as const,
+    label: "Claude Code (experimental)",
+    description: "Reads sessions from ~/.claude/projects/**/*.jsonl — format may change",
+  },
+  {
+    value: "cursor" as const,
+    label: "Cursor",
+    description: "Reads agent transcripts (JSONL + SQLite metadata)",
+  },
 ];
 
 const OUTPUT_PROVIDERS = [
@@ -36,6 +46,16 @@ const FORMATS = [
     value: "agents-md" as const,
     label: "agents-md",
     description: "AGENTS.md — distilled context file (recommended for Cursor)",
+  },
+  {
+    value: "handoff" as const,
+    label: "handoff",
+    description: "HANDOFF.md — Objective / Done / Next / Blockers",
+  },
+  {
+    value: "cursor-rules" as const,
+    label: "cursor-rules",
+    description: ".cursor/rules/*.mdc — split context for Cursor rules",
   },
   {
     value: "markdown" as const,

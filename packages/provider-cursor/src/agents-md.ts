@@ -21,7 +21,7 @@ export interface AgentsMdOptions {
 // Budget defaults for compact mode
 // ---------------------------------------------------------------------------
 
-const DEFAULTS = {
+export const AGENTS_MD_DEFAULTS = {
   totalChars: 32_000,
   requestChars: 500,
   lastMsgChars: 800,
@@ -44,7 +44,7 @@ const UNLIMITED = 999_999_999;
 
 export function generateAgentsMd(thread: Thread, opts: AgentsMdOptions = {}): string {
   const full = opts.mode === "full";
-  const budget = full ? UNLIMITED : (opts.budget ?? DEFAULTS.totalChars);
+  const budget = full ? UNLIMITED : (opts.budget ?? AGENTS_MD_DEFAULTS.totalChars);
 
   const lim = full
     ? {
@@ -60,16 +60,16 @@ export function generateAgentsMd(thread: Thread, opts: AgentsMdOptions = {}): st
         turnTextChars: UNLIMITED,
       }
     : {
-        requestChars: DEFAULTS.requestChars,
-        lastMsgChars: DEFAULTS.lastMsgChars,
-        diffLines: DEFAULTS.diffLines,
-        diffsShown: DEFAULTS.diffsShown,
-        filesListed: DEFAULTS.filesListed,
-        commands: DEFAULTS.commands,
-        reasoningItems: DEFAULTS.reasoningItems,
-        reasoningChars: DEFAULTS.reasoningChars,
-        recentTurns: DEFAULTS.recentTurns,
-        turnTextChars: DEFAULTS.turnTextChars,
+        requestChars: AGENTS_MD_DEFAULTS.requestChars,
+        lastMsgChars: AGENTS_MD_DEFAULTS.lastMsgChars,
+        diffLines: AGENTS_MD_DEFAULTS.diffLines,
+        diffsShown: AGENTS_MD_DEFAULTS.diffsShown,
+        filesListed: AGENTS_MD_DEFAULTS.filesListed,
+        commands: AGENTS_MD_DEFAULTS.commands,
+        reasoningItems: AGENTS_MD_DEFAULTS.reasoningItems,
+        reasoningChars: AGENTS_MD_DEFAULTS.reasoningChars,
+        recentTurns: AGENTS_MD_DEFAULTS.recentTurns,
+        turnTextChars: AGENTS_MD_DEFAULTS.turnTextChars,
       };
 
   const sections: string[] = [];
@@ -134,7 +134,7 @@ function buildHeader(thread: Thread, full: boolean): string {
  * falling back to the first one. This captures the current task better than
  * always using the first message, which is often IDE context or boilerplate.
  */
-function buildTask(thread: Thread, maxChars: number, filter: boolean): string {
+export function buildTask(thread: Thread, maxChars: number, filter: boolean): string {
   const SUBSTANCE_THRESHOLD = 80;
 
   // Collect all user text items
@@ -171,7 +171,7 @@ function buildTask(thread: Thread, maxChars: number, filter: boolean): string {
  * Last substantive assistant message (>80 chars).
  * Skips short transitional messages like "Ok" or "Let me check...".
  */
-function buildCurrentState(thread: Thread, maxChars: number): string {
+export function buildCurrentState(thread: Thread, maxChars: number): string {
   const SUBSTANCE_THRESHOLD = 80;
   for (let i = thread.turns.length - 1; i >= 0; i--) {
     const turn = thread.turns[i];
@@ -190,7 +190,7 @@ function buildCurrentState(thread: Thread, maxChars: number): string {
  * (most recently touched files last → slice(-N) picks the truly recent ones).
  * Only the most recent diff per file is kept.
  */
-function buildFilesChanged(
+export function buildFilesChanged(
   thread: Thread,
   maxFiles: number,
   maxDiffs: number,
@@ -270,7 +270,7 @@ function buildFilesChanged(
  * Trivial navigation commands (cd, ls, dir, echo, clear, cls) are skipped.
  * In full mode every run is included (with output); in compact, last-unique + no output.
  */
-function buildCommands(
+export function buildCommands(
   thread: Thread,
   maxCommands: number,
   includeOutput: boolean
@@ -357,29 +357,70 @@ function buildCommands(
   return lines.join("\n");
 }
 
-/** Most recent todo list found in the thread. */
-function buildTodo(thread: Thread): string {
+export type TodoStep = { step: string; status: string };
+export type TodoSnapshot = { explanation?: string | null; steps: TodoStep[] };
+
+/** Most recent todo list in the thread, if any. */
+export function getLatestTodo(thread: Thread): TodoSnapshot | null {
   for (let i = thread.turns.length - 1; i >= 0; i--) {
     const turn = thread.turns[i];
     if (!turn) continue;
     for (const item of turn.items) {
       if (item.type === "todo_list" && item.steps.length > 0) {
-        const lines = ["## Plan Status", ""];
-        if (item.explanation) lines.push(item.explanation, "");
-        for (const { step, status } of item.steps) {
-          const icon =
-            status === "completed"
-              ? "- [x]"
-              : status === "in_progress"
-                ? "- [ ] _(in progress)_"
-                : "- [ ]";
-          lines.push(`${icon} ${step}`);
-        }
-        return lines.join("\n");
+        return { explanation: item.explanation ?? undefined, steps: item.steps };
       }
     }
   }
-  return "";
+  return null;
+}
+
+/** Commands with non-zero exit codes (last occurrence per command). */
+export function collectCommandFailures(
+  thread: Thread,
+  maxCommands: number
+): Array<{ command: string; exitCode: number }> {
+  const TRIVIAL = /^(cd|ls|dir|echo|clear|cls|pwd|exit)\b/i;
+  const lastByCmd = new Map<string, { command: string; exitCode: number; order: number }>();
+  let order = 0;
+
+  for (const turn of thread.turns) {
+    for (const item of turn.items) {
+      if (
+        item.type === "command" &&
+        !TRIVIAL.test(item.command.trim()) &&
+        item.exitCode != null &&
+        item.exitCode !== 0
+      ) {
+        lastByCmd.set(item.command, {
+          command: item.command,
+          exitCode: item.exitCode,
+          order: order++,
+        });
+      }
+    }
+  }
+
+  return [...lastByCmd.values()]
+    .sort((a, b) => a.order - b.order)
+    .slice(-maxCommands);
+}
+
+export function buildTodo(thread: Thread): string {
+  const todo = getLatestTodo(thread);
+  if (!todo) return "";
+
+  const lines = ["## Plan Status", ""];
+  if (todo.explanation) lines.push(todo.explanation, "");
+  for (const { step, status } of todo.steps) {
+    const icon =
+      status === "completed"
+        ? "- [x]"
+        : status === "in_progress"
+          ? "- [ ] _(in progress)_"
+          : "- [ ]";
+    lines.push(`${icon} ${step}`);
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -461,7 +502,7 @@ function buildFooter(thread: Thread, full: boolean): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function truncate(s: string, max: number): string {
+export function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + "…";
 }
@@ -503,6 +544,6 @@ function cleanUserText(raw: string): string {
 }
 
 
-function formatDate(ts: number): string {
+export function formatDate(ts: number): string {
   return new Date(ts < 1e12 ? ts * 1000 : ts).toLocaleString();
 }

@@ -19,7 +19,9 @@ const ProvidersConfigSchema = z.object({
 const DefaultsConfigSchema = z.object({
   inputProvider: z.string().optional(),
   outputProvider: z.string().optional(),
-  format: z.enum(["agents-md", "markdown", "json"]).optional(),
+  format: z
+    .enum(["agents-md", "markdown", "json", "handoff", "cursor-rules"])
+    .optional(),
 });
 
 export const ConfigSchema = z.object({
@@ -102,6 +104,16 @@ export function resolveCodexPath(config: Config, flagValue?: string): string | u
   );
 }
 
+export function resolveInputProviderFlag(
+  flags: Record<string, string | boolean>
+): string | undefined {
+  const from = flags["from"];
+  const provider = flags["provider"];
+  if (typeof from === "string") return from;
+  if (typeof provider === "string") return provider;
+  return undefined;
+}
+
 export function resolveDefaultInputProvider(config: Config, flagValue?: string): string {
   return flagValue ?? config.defaults?.inputProvider ?? "codex";
 }
@@ -113,9 +125,16 @@ export function resolveDefaultOutputProvider(config: Config, flagValue?: string)
 export function resolveDefaultFormat(
   config: Config,
   flagValue?: string
-): "agents-md" | "markdown" | "json" {
+): "agents-md" | "markdown" | "json" | "handoff" | "cursor-rules" {
   const v = flagValue ?? config.defaults?.format ?? "agents-md";
-  if (v === "markdown" || v === "json") return v;
+  if (
+    v === "markdown" ||
+    v === "json" ||
+    v === "handoff" ||
+    v === "cursor-rules"
+  ) {
+    return v;
+  }
   return "agents-md";
 }
 

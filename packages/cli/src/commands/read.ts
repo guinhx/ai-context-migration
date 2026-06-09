@@ -3,16 +3,16 @@ import { getFlag, getBoolFlag } from "../args.ts";
 import { registry } from "@ctx/core";
 import type { Thread, Turn, TurnItem } from "@ctx/core";
 import { log, info, die, fmt } from "../output.ts";
-import { loadConfig, resolveDefaultInputProvider } from "../config.ts";
+import { loadConfig, resolveDefaultInputProvider, resolveInputProviderFlag } from "../config.ts";
 
 export async function commandRead(args: ParsedArgs): Promise<void> {
   const threadId = args.positional[0] ?? getFlag(args.flags, "id");
   if (!threadId) {
-    die("Usage: ctx read <thread-id> [--provider=codex] [--json]");
+    die("Usage: ctx read <thread-id> [--from=codex|claude|cursor] [--json]");
   }
 
   const config = await loadConfig();
-  const providerId = resolveDefaultInputProvider(config, getFlag(args.flags, "provider"));
+  const providerId = resolveDefaultInputProvider(config, resolveInputProviderFlag(args.flags));
   const jsonOutput = getBoolFlag(args.flags, "json");
 
   let provider;

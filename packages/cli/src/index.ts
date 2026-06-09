@@ -2,6 +2,8 @@
 
 import { registry } from "@ctx/core";
 import { CodexProvider } from "@ctx/provider-codex";
+import { ClaudeProvider } from "@ctx/provider-claude";
+import { CursorInputProvider } from "@ctx/provider-cursor-input";
 import { CursorProvider } from "@ctx/provider-cursor";
 
 import { parseArgs } from "./args.ts";
@@ -10,6 +12,7 @@ import { commandRead } from "./commands/read.ts";
 import { commandExport } from "./commands/export.ts";
 import { commandMigrate } from "./commands/migrate.ts";
 import { commandSetup } from "./commands/setup.ts";
+import { commandValidate } from "./commands/validate.ts";
 import { log, info, die, fmt } from "./output.ts";
 import {
   loadConfig,
@@ -34,6 +37,8 @@ registry.registerInput(
     experimentalApi: config.providers?.codex?.experimentalApi,
   })
 );
+registry.registerInput(new ClaudeProvider());
+registry.registerInput(new CursorInputProvider());
 registry.registerOutput(new CursorProvider());
 
 // ---------------------------------------------------------------------------
@@ -76,6 +81,7 @@ if (!args.command) {
 if (
   isFirstRun(config) &&
   args.command !== "setup" &&
+  args.command !== "validate" &&
   args.command !== "--help" &&
   process.stdout.isTTY &&
   process.stdin.isTTY
@@ -121,6 +127,10 @@ try {
       await commandMigrate(args);
       break;
 
+    case "validate":
+      await commandValidate(args);
+      break;
+
     default:
       die(`Unknown command: "${args.command}". Run ${fmt.bold("ctx --help")} for usage.`);
   }
@@ -146,12 +156,13 @@ ${fmt.bold("COMMANDS")}
   ${fmt.cyan("read")}     Read and display a thread
   ${fmt.cyan("export")}   Export a thread as canonical JSON
   ${fmt.cyan("migrate")}  Migrate a thread to another AI's format
+  ${fmt.cyan("validate")} Check AGENTS.md commands against project files
 
 ${fmt.bold("COMMON FLAGS")}
   --provider=<id>   Input provider  ${fmt.dim(`(configured: ${config.defaults?.inputProvider ?? "codex"})`)}
-  --from=<id>       Input provider for migrate/export
+  --from=<id>       Input provider (alias for --provider on list/read)
   --to=<id>         Output provider for migrate  ${fmt.dim(`(configured: ${config.defaults?.outputProvider ?? "cursor"})`)}
-  --format=<fmt>    Output format: agents-md | markdown | json  ${fmt.dim(`(configured: ${config.defaults?.format ?? "agents-md"})`)}
+  --format=<fmt>    Output format: agents-md | markdown | json | handoff | cursor-rules  ${fmt.dim(`(configured: ${config.defaults?.format ?? "agents-md"})`)}
   --out=<path>      Output directory or file path
   --json            Print raw JSON output
   --help            Show this help
@@ -168,6 +179,13 @@ ${fmt.bold("EXAMPLES")}
 
   ${fmt.dim("# Batch migrate all threads")}
   ctx migrate --all --from=codex --to=cursor --out=./context/
+
+  ${fmt.dim("# Check AGENTS.md for stale commands/paths")}
+  ctx validate
+  ctx validate --file=.cursor/AGENTS.md
+
+${fmt.bold("ALIASES")}
+  ${fmt.cyan("ctx-migrate")}  Same binary — use to avoid confusion with ai-context-bridge
 
 ${fmt.bold("PROVIDERS")}
   Input:   ${registry.listInputs().map((p) => fmt.cyan(p.id)).join(", ")}

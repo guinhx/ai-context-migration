@@ -3,11 +3,11 @@ import { getFlag, getNumberFlag, getBoolFlag } from "../args.ts";
 import { registry } from "@ctx/core";
 import { log, info, die, printTable, fmt } from "../output.ts";
 import type { ThreadSummary } from "@ctx/core";
-import { loadConfig, resolveDefaultInputProvider } from "../config.ts";
+import { loadConfig, resolveDefaultInputProvider, resolveInputProviderFlag } from "../config.ts";
 
 export async function commandList(args: ParsedArgs): Promise<void> {
   const config = await loadConfig();
-  const providerId = resolveDefaultInputProvider(config, getFlag(args.flags, "provider"));
+  const providerId = resolveDefaultInputProvider(config, resolveInputProviderFlag(args.flags));
   const limit = getNumberFlag(args.flags, "limit", 50);
   const archived = getBoolFlag(args.flags, "archived");
   const jsonOutput = getBoolFlag(args.flags, "json");

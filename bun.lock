@@ -14,11 +14,14 @@
       "version": "0.1.0",
       "bin": {
         "ctx": "./src/index.ts",
+        "ctx-migrate": "./src/index.ts",
       },
       "dependencies": {
         "@ctx/core": "workspace:*",
+        "@ctx/provider-claude": "workspace:*",
         "@ctx/provider-codex": "workspace:*",
         "@ctx/provider-cursor": "workspace:*",
+        "@ctx/provider-cursor-input": "workspace:*",
         "zod": "^3.25.55",
       },
     },
@@ -26,6 +29,14 @@
       "name": "@ctx/core",
       "version": "0.1.0",
       "dependencies": {
+        "zod": "^3.25.55",
+      },
+    },
+    "packages/provider-claude": {
+      "name": "@ctx/provider-claude",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ctx/core": "workspace:*",
         "zod": "^3.25.55",
       },
     },
@@ -44,15 +55,27 @@
         "@ctx/core": "workspace:*",
       },
     },
+    "packages/provider-cursor-input": {
+      "name": "@ctx/provider-cursor-input",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ctx/core": "workspace:*",
+        "zod": "^3.25.55",
+      },
+    },
   },
   "packages": {
     "@ctx/cli": ["@ctx/cli@workspace:packages/cli"],
 
     "@ctx/core": ["@ctx/core@workspace:packages/core"],
 
+    "@ctx/provider-claude": ["@ctx/provider-claude@workspace:packages/provider-claude"],
+
     "@ctx/provider-codex": ["@ctx/provider-codex@workspace:packages/provider-codex"],
 
     "@ctx/provider-cursor": ["@ctx/provider-cursor@workspace:packages/provider-cursor"],
+
+    "@ctx/provider-cursor-input": ["@ctx/provider-cursor-input@workspace:packages/provider-cursor-input"],
 
     "@types/node": ["@types/node@25.9.2", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-G05zqtJhcDLb8uslf5EjCxXg9G1KQxiV8OS0R26IC//Eoyitzqe8z37I7cqvnZlrlSfgocQRfSn/AHBZJJFyGw=="],
 
